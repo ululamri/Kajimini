@@ -1,0 +1,37 @@
+name: Build and Release Android APK
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+          channel: 'stable'
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build APK dengan API Key rahasia
+        run: flutter build apk --release --dart-define=API_KEY=${{ secrets.GEMINI_API_KEY }}
+
+      - name: Upload APK ke GitHub Actions
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gemini-App-Release
+          path: build/app/outputs/flutter-apk/app-release.apk
