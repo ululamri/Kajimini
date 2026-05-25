@@ -51,16 +51,14 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    // Mengaktifkan kecerdasan Gemini 1.5 Flash dengan fitur Google Search Tool (Live Data)
+    // PERBAIKAN: Menghapus tools GoogleSearchRetrieval karena belum didukung SDK Dart saat ini
     _model = GenerativeModel(
       model: 'gemini-1.5-flash',
       apiKey: _apiKey,
-      tools: [Tool(googleSearchRetrieval: GoogleSearchRetrieval())],
     );
     _chatSession = _model.startChat();
   }
 
-  // FITUR: Memilih file/gambar dari HP untuk diupload ke Gemini
   Future<void> _pickFile() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -74,7 +72,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // FITUR: Mengirim pesan teks + file (Multimodal) ke Gemini
   Future<void> _sendMessage(String text) async {
     if (text.trim().isEmpty && _selectedFile == null) return;
     if (_apiKey.isEmpty) {
@@ -100,7 +97,6 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       List<Content> contents = [];
       
-      // Jika ada file, ubah menjadi biner bytes agar bisa dibaca Gemini
       if (fileToSend != null) {
         final bytes = await fileToSend.readAsBytes();
         final mimeType = userText.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg';
@@ -130,9 +126,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // FITUR: Mengunduh/menyimpan teks jawaban Gemini menjadi file .txt ke penyimpanan HP
   Future<void> _downloadResponse(String text) async {
-    // Meminta izin penyimpanan (khusus Android/iOS lama, Android baru otomatis aman di folder lokal)
     await Permission.storage.request();
 
     try {
