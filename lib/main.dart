@@ -123,7 +123,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  // ──────────────────────── KHUSUS DEEP RESEARCH NATIVE ────────────────────────
+  // ──────────────────────── UTAMA KIRIM CHAT DEEP RESEARCH ────────────────────────
   void _sendMessage() async {
     final messageText = _chatController.text.trim();
     final apiKey = _apiKeyController.text.trim();
@@ -143,14 +143,18 @@ class _ChatScreenState extends State<ChatScreen> {
     await _saveMessages();
 
     try {
-      // SESUAI DOKUMENTASI: Memanggil GoogleSearchRetrieval secara native langsung lewat parameter objek Tool
+      // Mengaktifkan instruksi Deep Research tingkat lanjut lewat jangkar System Instruction
       final model = GenerativeModel(
         model: _selectedModelString,
         apiKey: apiKey,
         generationConfig: GenerationConfig(temperature: 0.2),
-        tools: [
-          Tool(googleSearchRetrieval: GoogleSearchRetrieval()) // Bersih tanpa trik manipulasi JSON!
-        ],
+        systemInstruction: Content.system(
+          "Kamu adalah Kajimini Deep Research AI, sebuah sistem kecerdasan buatan super yang "
+          "memiliki kemampuan bernalar mendalam (Reasoning) dan riset mutakhir. "
+          "Tugas utamamu adalah melakukan analisis mendalam secara komprehensif, logis, dan faktual. "
+          "Jika pengguna menanyakan informasi terkini, gunakan kemampuan analisismu untuk menstrukturkan "
+          "jawaban secara taktis, objektif, menyertakan poin-poin investigasi penting, serta memisahkan opini dari fakta."
+        ),
       );
 
       final history = _messages
@@ -280,7 +284,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 Expanded(
                   child: TextField(
                     controller: _chatController,
-                    decoration: const InputDecoration(hintText: 'Tanyakan hasil riset internet...', border: InputBorder.none, contentPadding: EdgeInsets.symmetric(horizontal: 12)),
+                    decoration: const InputDecoration(hintText: 'Tanyakan hasil riset...', border: InputBorder.none, contentPadding: EdgeInsets.symmetric(horizontal: 12)),
                     textInputAction: TextInputAction.send,
                     onSubmitted: (_) => _sendMessage(),
                   ),
