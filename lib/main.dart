@@ -1,5 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const KajiminiApp());
@@ -22,12 +26,24 @@ class KajiminiApp extends StatelessWidget {
   }
 }
 
-// Model data untuk menampung pesan chat
+// Model data untuk menampung pesan chat + Mendukung simpan/muat JSON
 class ChatMessage {
   final String text;
   final bool isUser;
 
   ChatMessage({required this.text, required this.isUser});
+
+  Map<String, dynamic> toJson() => {
+        'text': text,
+        'isUser': isUser,
+      };
+
+  factory ChatMessage.fromJson(Map<String, dynamic> json) {
+    return ChatMessage(
+      text: json['text'] as String,
+      isUser: json['isUser'] as bool,
+    );
+  }
 }
 
 class ChatScreen extends StatefulWidget {
@@ -41,8 +57,8 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<ChatMessage> _messages = [];
   final TextEditingController _chatController = TextEditingController();
   final TextEditingController _apiKeyController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   
-  // Model string resmi dan paling stabil dari Google
   String _selectedModelString = 'gemini-1.5-flash-latest'; 
   bool _isLoading = false;
   bool _showSettings = true; // Menampilkan/menyembunyikan panel API Key
@@ -54,7 +70,76 @@ class _ChatScreenState extends State<ChatScreen> {
     {'name': 'Gemini 2.0 Flash (Terbaru)', 'code': 'gemini-2.0-flash-exp'},
   ];
 
-  // Fungsi Utama untuk mengirim pesan ke Server Google Gemini
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedData();
+  }
+
+  @override
+  void dispose() {
+    _chatController.dispose();
+    _apiKeyController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  // ──────────────────────── UTALITAS PENYIMPANAN (PREFERENCES) ────────────────────────
+  Future<void> _loadSavedData() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      final savedApiKey = prefs.getString('api_key') ?? '';
+      _apiKeyController.text = savedApiKey;
+      _selectedModelString = prefs.getString('selected_model') ?? 'gemini-1.5-flash-latest';
+      
+      final historyJson = prefs.getString('chat_history');
+      if (historyJson != null) {
+        try {
+          final List<dynamic> decoded = jsonDecode(historyJson);
+          _messages.clear();
+          _messages.addAll(
+            decoded.map((e) => ChatMessage.fromJson(e as Map<String, dynamic>)).toList()
+          );
+        } catch (_) {
+          _messages.clear();
+        }
+      }
+      // Sembunyikan panel jika API Key sudah ada isinya otomatis
+      _showSettings = savedApiKey.isEmpty;
+    });
+    _scrollToBottom();
+  }
+
+  Future<void> _saveMessages() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = jsonEncode(_messages.map((m) => m.toJson()).toList());
+    await prefs.setString('chat_history', jsonString);
+  }
+
+  void _clearHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _messages.clear();
+    });
+    await prefs.remove('chat_history');
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('🗑️ Riwayat obrolan telah dibersihkan!')),
+    );
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  // ──────────────────────── FUNGSI UTAMA KIRIM CHAT ────────────────────────
   void _sendMessage() async {
     final messageText = _chatController.text.trim();
     final apiKey = _apiKeyController.text.trim();
@@ -77,23 +162,40 @@ class _ChatScreenState extends State<ChatScreen> {
       _isLoading = true;
       _chatController.clear();
     });
+    _scrollToBottom();
+    await _saveMessages();
 
     try {
-      // Inisialisasi model secara dinamis sesuai pilihan Dropdown
+      final config = GenerationConfig(temperature: 0.2); // Suhu rendah agar hasil riset lebih akurat & faktual
+      
       final model = GenerativeModel(
         model: _selectedModelString,
         apiKey: apiKey,
+        generationConfig: config,
+        // ─── DI SINI KUNCI DEEP RESEARCH-NYA ───
+        tools: [
+          Tool(googleSearchRetrieval: GoogleSearchRetrieval())
+        ],
       );
 
-      // Kirim data ke Google AI
-      final response = await model.generateContent([Content.text(messageText)]);
+      // Susun riwayat obrolan sebelumnya agar AI tidak lupa konteks sesinya
+      final history = _messages
+          .sublist(0, _messages.length - 1)
+          .map((msg) => Content(
+                msg.isUser ? 'user' : 'model',
+                [TextPart(msg.text)],
+              ))
+          .toList();
+
+      // Mulai obrolan dengan membawa memori masa lalu
+      final chat = model.startChat(history: history);
+      final response = await chat.sendMessage(Content.text(messageText));
       
       setState(() {
         _messages.add(ChatMessage(text: response.text ?? 'Tidak ada jawaban.', isUser: false));
         _isLoading = false;
       });
     } catch (e) {
-      // Jika terjadi kesalahan (seperti SocketException atau API Key salah)
       setState(() {
         _messages.add(ChatMessage(
           text: 'Terjadi kesalahan: ${e.toString()}\n\nTip: Periksa koneksi internet atau validitas API Key Anda.', 
@@ -102,6 +204,9 @@ class _ChatScreenState extends State<ChatScreen> {
         _isLoading = false;
       });
     }
+
+    _scrollToBottom();
+    await _saveMessages();
   }
 
   @override
@@ -123,16 +228,24 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: Text(model['name']!),
               );
             }).toList(),
-            onChanged: (String? newValue) {
-              setState(() {
-                if (newValue != null) {
+            onChanged: (String? newValue) async {
+              if (newValue != null) {
+                final prefs = await SharedPreferences.getInstance();
+                setState(() {
                   _selectedModelString = newValue;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Model aktif: $_selectedModelString')),
-                  );
-                }
-              });
+                });
+                await prefs.setString('selected_model', newValue);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Model aktif: $_selectedModelString')),
+                );
+              }
             },
+          ),
+          // Tombol Hapus Riwayat Chat
+          IconButton(
+            icon: const Icon(Icons.delete_sweep, color: Colors.redAccent),
+            tooltip: 'Hapus Riwayat',
+            onPressed: _clearHistory,
           ),
           // Tombol untuk menyembunyikan/menampilkan setelan API Key
           IconButton(
@@ -169,8 +282,11 @@ class _ChatScreenState extends State<ChatScreen> {
                   const SizedBox(width: 8),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                    onPressed: () {
-                      if (_apiKeyController.text.trim().isNotEmpty) {
+                    onPressed: () async {
+                      final keyText = _apiKeyController.text.trim();
+                      if (keyText.isNotEmpty) {
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setString('api_key', keyText);
                         setState(() {
                           _showSettings = false; // Sembunyikan panel setelah sukses
                         });
@@ -199,27 +315,50 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   )
                 : ListView.builder(
+                    controller: _scrollController,
                     padding: const EdgeInsets.all(16),
                     itemCount: _messages.length,
                     itemBuilder: (context, index) {
                       final message = _messages[index];
+                      final isUser = message.isUser;
+                      
                       return Align(
-                        alignment: message.isUser ? Alignment.centerRight : Alignment.centerLeft,
+                        alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
                         child: Container(
                           margin: const EdgeInsets.symmetric(vertical: 4),
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: message.isUser ? Colors.blue[700] : Colors.grey[800],
+                            color: isUser ? Colors.blue[700] : Colors.grey[800],
                             borderRadius: BorderRadius.circular(12).copyWith(
-                              bottomRight: message.isUser ? const Radius.circular(0) : const Radius.circular(12),
-                              bottomLeft: message.isUser ? const Radius.circular(12) : const Radius.circular(0),
+                              bottomRight: isUser ? const Radius.circular(0) : const Radius.circular(12),
+                              bottomLeft: isUser ? const Radius.circular(12) : const Radius.circular(0),
                             ),
                           ),
-                          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-                          child: Text(
-                            message.text,
-                            style: const TextStyle(color: Colors.white, fontSize: 16),
-                          ),
+                          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.82),
+                          child: isUser
+                              ? SelectableText(
+                                  message.text,
+                                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                                )
+                              : MarkdownBody(
+                                  data: message.text,
+                                  selectable: true,
+                                  styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                                    p: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4),
+                                    code: const TextStyle(
+                                      color: Colors.orangeAccent,
+                                      backgroundColor: Colors.black38,
+                                      fontFamily: 'monospace',
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  codeblockBuilder: (context, element, code, language) {
+                                    return _CodeBlockWidget(
+                                      code: code,
+                                      language: language ?? 'code',
+                                    );
+                                  },
+                                ),
                         ),
                       );
                     },
@@ -256,6 +395,87 @@ class _ChatScreenState extends State<ChatScreen> {
                   onPressed: _sendMessage,
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────── KOTAK KHUSUS RENDER BLOK KODE + TOMBOL COPY ───────────────────
+class _CodeBlockWidget extends StatefulWidget {
+  final String code;
+  final String language;
+
+  const _CodeBlockWidget({required this.code, required this.language});
+
+  @override
+  State<_CodeBlockWidget> createState() => _CodeBlockWidgetState();
+}
+
+class _CodeBlockWidgetState extends State<_CodeBlockWidget> {
+  bool _copied = false;
+
+  void _copyToClipboard() {
+    Clipboard.setData(ClipboardData(text: widget.code));
+    setState(() => _copied = true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('📋 Kode berhasil disalin!'), duration: Duration(seconds: 1)),
+    );
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _copied = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            color: const Color(0xFF2D2D2D),
+            child: Row(
+              children: [
+                Text(
+                  widget.language,
+                  style: const TextStyle(color: Colors.white54, fontSize: 12, fontFamily: 'monospace'),
+                ),
+                const Spacer(),
+                InkWell(
+                  onTap: _copyToClipboard,
+                  child: Row(
+                    children: [
+                      Icon(
+                        _copied ? Icons.check : Icons.copy,
+                        size: 14,
+                        color: _copied ? Colors.green : Colors.white54,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _copied ? 'Disalin' : 'Salin',
+                        style: TextStyle(color: _copied ? Colors.green : Colors.white54, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.all(12),
+            child: SelectableText(
+              widget.code,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 13, color: Colors.lightBlueAccent),
             ),
           ),
         ],
