@@ -30,6 +30,11 @@ jobs:
           cp -r temp_project/android ./android
           rm -rf temp_project
 
+      - name: Inject Internet Permission (Solusi SocketException)
+        # Robot akan menyisipkan izin internet ke dalam file AndroidManifest
+        run: |
+          sed -i 's/<application/<uses-permission android:name="android.permission.INTERNET" \/>\n    <application/g' android/app/src/main/AndroidManifest.xml
+
       - name: Auto-Generate Keystore & Inject Signer (PERBAIKAN)
         run: |
           # 1. Buat Keystore Digital
@@ -45,7 +50,7 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Build Signed APK (Resmi Berlisensi)
+      - name: Build Signed APK (Resmi Berlisensi & Bisa Internet)
         run: flutter build apk --release
 
       - name: Upload APK ke GitHub Actions
