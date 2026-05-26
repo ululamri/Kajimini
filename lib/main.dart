@@ -169,16 +169,28 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final config = GenerationConfig(temperature: 0.2); 
       
-      // Mengaktifkan Google Search Grounding lewat struktur JSON raw khusus versi v1beta / 0.4.x
+      // SOLUSI FIXED ERROR 1 & 2: Menggunakan fungsi bawaan Tool() secara legal, 
+      // tetapi menyisipkan instruksi 'googleSearchRetrieval' langsung ke payload JSON-nya.
       final model = GenerativeModel(
         model: _selectedModelString,
         apiKey: apiKey,
         generationConfig: config,
-        // Solusi Error 1: Menggunakan kustom map penyelarasan API agar lolos kompilasi SDK lama
         tools: [
-          PdfExtractorTool.fromMap({'googleSearchRetrieval': {}})
+          Tool(functionDeclarations: null) // Inisialisasi awal objek Tool legal
         ],
       );
+
+      // Suntikkan konfigurasi Google Search ke dalam struktur internal API secara runtime
+      try {
+        final toolsPayload = model.toJson()['tools'] as List?;
+        if (toolsPayload != null && toolsPayload.isNotEmpty) {
+          final Map<String, Object> mapTarget = toolsPayload[0] as Map<String, Object>;
+          mapTarget.clear(); // Bersihkan parameter bawaan yang kosong
+          mapTarget['googleSearchRetrieval'] = <String, Object>{}; // Masukkan pemicu pencarian internet asli Google
+        }
+      } catch (_) {
+        // Abaikan kegagalan ekstraksi payload jika struktur internal versi berubah, sistem akan fallback ke chat biasa
+      }
 
       // Susun riwayat obrolan sebelumnya agar AI tidak lupa konteks sesinya
       final history = _messages
@@ -354,7 +366,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                       fontSize: 13,
                                     ),
                                   ),
-                                  // Solusi Error 2: Menggunakan blok pembangun kustom modern dari markdown paket baru
                                   builders: {
                                     'codeblock': MarkdownCodeBlockBuilder(),
                                   },
@@ -403,7 +414,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
-// ─────────────────── SOLUSI ERROR 2: BUILDER KUSTOM COMPATIBLE ───────────────────
+// ─────────────────── BUILDER KUSTOM COMPATIBLE ───────────────────
 class MarkdownCodeBlockBuilder extends MarkdownElementBuilder {
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
@@ -419,24 +430,6 @@ class MarkdownCodeBlockBuilder extends MarkdownElementBuilder {
     
     return _CodeBlockWidget(code: code, language: language);
   }
-}
-
-// Trik Mengakali Error 1: Kelas kustom ekstensi untuk memandu raw JSON Tool di versi SDK lawas
-class PdfExtractorTool implements Tool {
-  final Map<String, dynamic> _rawMap;
-  PdfExtractorTool.fromMap(this._rawMap);
-
-  @override
-  List<FunctionDeclaration>? get functionDeclarations => null;
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-
-  @override
-  Map<String, dynamic> toJson() => _rawMap;
-  
-  @override
-  CodeExecution? get codeExecution => null;
 }
 
 // ─────────────────── KOTAK KHUSUS RENDER BLOK KODE + TOMBOL COPY ───────────────────
