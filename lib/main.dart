@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:markdown/markdown.dart' as md;
 
 void main() {
   runApp(const KajiminiApp());
@@ -84,7 +85,7 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
-  // ──────────────────────── UTALITAS PENYIMPANAN (PREFERENCES) ────────────────────────
+  // ──────────────────────── UTILITAS PENYIMPANAN (PREFERENCES) ────────────────────────
   Future<void> _loadSavedData() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
@@ -166,15 +167,16 @@ class _ChatScreenState extends State<ChatScreen> {
     await _saveMessages();
 
     try {
-      final config = GenerationConfig(temperature: 0.2); // Suhu rendah agar hasil riset lebih akurat & faktual
+      final config = GenerationConfig(temperature: 0.2); 
       
+      // Mengaktifkan Google Search Grounding lewat struktur JSON raw khusus versi v1beta / 0.4.x
       final model = GenerativeModel(
         model: _selectedModelString,
         apiKey: apiKey,
         generationConfig: config,
-        // ─── DI SINI KUNCI DEEP RESEARCH-NYA ───
+        // Solusi Error 1: Menggunakan kustom map penyelarasan API agar lolos kompilasi SDK lama
         tools: [
-          Tool(googleSearchRetrieval: GoogleSearchRetrieval())
+          PdfExtractorTool.fromMap({'googleSearchRetrieval': {}})
         ],
       );
 
@@ -352,11 +354,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                       fontSize: 13,
                                     ),
                                   ),
-                                  codeblockBuilder: (context, element, code, language) {
-                                    return _CodeBlockWidget(
-                                      code: code,
-                                      language: language ?? 'code',
-                                    );
+                                  // Solusi Error 2: Menggunakan blok pembangun kustom modern dari markdown paket baru
+                                  builders: {
+                                    'codeblock': MarkdownCodeBlockBuilder(),
                                   },
                                 ),
                         ),
@@ -401,6 +401,42 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
   }
+}
+
+// ─────────────────── SOLUSI ERROR 2: BUILDER KUSTOM COMPATIBLE ───────────────────
+class MarkdownCodeBlockBuilder extends MarkdownElementBuilder {
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    final String code = element.textContent;
+    String language = 'code';
+    
+    if (element.attributes['class'] != null) {
+      final lg = element.attributes['class']!;
+      if (lg.startsWith('language-')) {
+        language = lg.substring(9);
+      }
+    }
+    
+    return _CodeBlockWidget(code: code, language: language);
+  }
+}
+
+// Trik Mengakali Error 1: Kelas kustom ekstensi untuk memandu raw JSON Tool di versi SDK lawas
+class PdfExtractorTool implements Tool {
+  final Map<String, dynamic> _rawMap;
+  PdfExtractorTool.fromMap(this._rawMap);
+
+  @override
+  List<FunctionDeclaration>? get functionDeclarations => null;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  @override
+  Map<String, dynamic> toJson() => _rawMap;
+  
+  @override
+  CodeExecution? get codeExecution => null;
 }
 
 // ─────────────────── KOTAK KHUSUS RENDER BLOK KODE + TOMBOL COPY ───────────────────
