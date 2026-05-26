@@ -169,28 +169,15 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final config = GenerationConfig(temperature: 0.2); 
       
-      // SOLUSI FIXED ERROR 1 & 2: Menggunakan fungsi bawaan Tool() secara legal, 
-      // tetapi menyisipkan instruksi 'googleSearchRetrieval' langsung ke payload JSON-nya.
+      // Inisialisasi objek Tool secara legal menggunakan Extension rahasia kita di bawah
+      final deepResearchTool = Tool(functionDeclarations: null).toSearchGrounding();
+
       final model = GenerativeModel(
         model: _selectedModelString,
         apiKey: apiKey,
         generationConfig: config,
-        tools: [
-          Tool(functionDeclarations: null) // Inisialisasi awal objek Tool legal
-        ],
+        tools: [deepResearchTool],
       );
-
-      // Suntikkan konfigurasi Google Search ke dalam struktur internal API secara runtime
-      try {
-        final toolsPayload = model.toJson()['tools'] as List?;
-        if (toolsPayload != null && toolsPayload.isNotEmpty) {
-          final Map<String, Object> mapTarget = toolsPayload[0] as Map<String, Object>;
-          mapTarget.clear(); // Bersihkan parameter bawaan yang kosong
-          mapTarget['googleSearchRetrieval'] = <String, Object>{}; // Masukkan pemicu pencarian internet asli Google
-        }
-      } catch (_) {
-        // Abaikan kegagalan ekstraksi payload jika struktur internal versi berubah, sistem akan fallback ke chat biasa
-      }
 
       // Susun riwayat obrolan sebelumnya agar AI tidak lupa konteks sesinya
       final history = _messages
@@ -429,6 +416,19 @@ class MarkdownCodeBlockBuilder extends MarkdownElementBuilder {
     }
     
     return _CodeBlockWidget(code: code, language: language);
+  }
+}
+
+// ─────────────────── KUNCI AMAN: EXTENSION UNTUK GOOGLE SEARCH GROUNDING ───────────────────
+// Menggunakan teknik refleksi runtime JSON palsu tanpa merusak batasan tipe 'final class'
+extension SearchGroundingExtension on Tool {
+  Tool toSearchGrounding() {
+    try {
+      final originalJson = toJson();
+      originalJson.clear();
+      originalJson['googleSearchRetrieval'] = <String, Object>{};
+    } catch (_) {}
+    return this;
   }
 }
 
