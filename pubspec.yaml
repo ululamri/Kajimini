@@ -9,7 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  google_generative_ai: ^0.4.9
+  google_generative_ai: ^0.4.7
   flutter_markdown: ^0.6.23
   file_picker: ^8.0.0
   path_provider: ^2.1.3
