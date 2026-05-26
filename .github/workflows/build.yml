@@ -30,28 +30,16 @@ jobs:
           cp -r temp_project/android ./android
           rm -rf temp_project
 
-      - name: Auto-Generate Keystore & Inject Signer
-        # Robot akan membuat Tanda Tangan Digital dan menyuntikkannya ke sistem Android
+      - name: Auto-Generate Keystore & Inject Signer (PERBAIKAN)
         run: |
           # 1. Buat Keystore Digital
           keytool -genkey -v -keystore android/app/kajimini.jks -keyalg RSA -keysize 2048 -validity 10000 -alias kajimini -storepass kajimini123 -keypass kajimini123 -dname "CN=Kajimini, OU=Dev, O=Kajimini, L=Jakarta, ST=DKI, C=ID"
           
-          # 2. Buat konfigurasi Gradle untuk Signer
-          cat << 'EOF' > android/app/signing.gradle
-          android {
-              signingConfigs {
-                  release {
-                      storeFile file("kajimini.jks")
-                      storePassword "kajimini123"
-                      keyAlias "kajimini"
-                      keyPassword "kajimini123"
-                  }
-              }
-          }
-          EOF
+          # 2. Suntikkan konfigurasi secara presisi ke dalam kurung 'android' menggunakan AWK
+          awk '/buildTypes \{/ { print "    signingConfigs {\n        release {\n            storeFile file(\"kajimini.jks\")\n            storePassword \"kajimini123\"\n            keyAlias \"kajimini\"\n            keyPassword \"kajimini123\"\n        }\n    }" } 1' android/app/build.gradle > temp.gradle
+          mv temp.gradle android/app/build.gradle
           
-          # 3. Gabungkan konfigurasi ke sistem aplikasi utama
-          echo "apply from: 'signing.gradle'" >> android/app/build.gradle
+          # 3. Ubah config debug menjadi release
           sed -i 's/signingConfig signingConfigs.debug/signingConfig signingConfigs.release/g' android/app/build.gradle
 
       - name: Install Dependencies
