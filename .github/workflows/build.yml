@@ -24,21 +24,44 @@ jobs:
           flutter-version: '3.19.0'
           channel: 'stable'
 
-      - name: Generate Android Folder
-        # Robot akan membuat proyek kosong, mengambil folder 'android', lalu menghapus sisanya
+      - name: Generate Android Folder (Kajimini)
         run: |
-          flutter create --org com.gemini --project-name gemini_custom_app temp_project
+          flutter create --org com.kajimini --project-name kajimini temp_project
           cp -r temp_project/android ./android
           rm -rf temp_project
+
+      - name: Auto-Generate Keystore & Inject Signer
+        # Robot akan membuat Tanda Tangan Digital dan menyuntikkannya ke sistem Android
+        run: |
+          # 1. Buat Keystore Digital
+          keytool -genkey -v -keystore android/app/kajimini.jks -keyalg RSA -keysize 2048 -validity 10000 -alias kajimini -storepass kajimini123 -keypass kajimini123 -dname "CN=Kajimini, OU=Dev, O=Kajimini, L=Jakarta, ST=DKI, C=ID"
+          
+          # 2. Buat konfigurasi Gradle untuk Signer
+          cat << 'EOF' > android/app/signing.gradle
+          android {
+              signingConfigs {
+                  release {
+                      storeFile file("kajimini.jks")
+                      storePassword "kajimini123"
+                      keyAlias "kajimini"
+                      keyPassword "kajimini123"
+                  }
+              }
+          }
+          EOF
+          
+          # 3. Gabungkan konfigurasi ke sistem aplikasi utama
+          echo "apply from: 'signing.gradle'" >> android/app/build.gradle
+          sed -i 's/signingConfig signingConfigs.debug/signingConfig signingConfigs.release/g' android/app/build.gradle
 
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Build APK dengan API Key rahasia
-        run: flutter build apk --release --dart-define=API_KEY=${{ secrets.GEMINI_API_KEY }}
+      - name: Build Signed APK (Resmi Berlisensi)
+        run: flutter build apk --release
 
       - name: Upload APK ke GitHub Actions
         uses: actions/upload-artifact@v4
         with:
-          name: Gemini-App-Release
+          name: Kajimini-App-Release
           path: build/app/outputs/flutter-apk/app-release.apk
